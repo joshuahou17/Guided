@@ -1,0 +1,23 @@
+node_modules/
+.DS_Store
+*.tmp
+*.tmp.jpg
+_baseline.jpg
+_poll.jpg
+
+# Session data
+sessions/
+
+# Debug logs
+guided-debug.log
+
+# Electron build output
+dist/
+out/
+
+# Native binary (compiled locally)
+native/overlay
+
+# Environment / secrets
+.env
+.env.local

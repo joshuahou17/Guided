@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guided</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
+      background: transparent;
+      color: #ffffff;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .pill {
+      background: rgba(20, 20, 25, 0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 26px;
+      overflow: hidden;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Collapsed State (default during guidance): single-line pill ── */
+    .collapsed-row {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      -webkit-app-region: drag;
+      min-height: 48px;
+    }
+    .pill.state-collapsed .collapsed-row { display: flex; }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3B82F6;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .status-dot.off-track { background: #F59E0B; }
+    .status-dot.thinking {
+      background: #3B82F6;
+      animation: dotPulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+
+    .collapsed-text {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.9);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.1px;
+    }
+
+    .collapsed-step {
+      color: rgba(255, 255, 255, 0.4);
+      font-weight: 600;
+      margin-right: 2px;
+    }
+
+    .pill-btn {
+      -webkit-app-region: no-drag;
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.35);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .pill-btn:hover {
+      color: rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* ── Expanded State (for input): instruction + text input ── */
+    .expanded-content {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 16px;
+    }
+    .pill.state-expanded .expanded-content { display: flex; }
+
+    .expanded-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      -webkit-app-region: drag;
+    }
+
+    .expanded-title {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.4);
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    .expanded-app {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.25);
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 400;
+    }
+
+    .expanded-instruction {
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.85);
+      line-height: 1.4;
+      letter-spacing: -0.1px;
+    }
+
+    .expanded-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .expanded-input-row input {
+      -webkit-app-region: no-drag;
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.06);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .expanded-input-row input:focus {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .expanded-input-row input::placeholder {
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    .send-icon-btn {
+      -webkit-app-region: no-drag;
+      background: rgba(59, 130, 246, 0.2);
+      border: none;
+      color: #3B82F6;
+      width: 34px;
+      height: 34px;
+      border-radius: 17px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .send-icon-btn:hover {
+      background: rgba(59, 130, 246, 0.35);
+    }
+
+    /* Off-track banner in expanded */
+    .off-track-strip {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+    }
+    .off-track-strip.visible { display: flex; }
+
+    .off-track-strip-text {
+      font-size: 12px;
+      color: #F59E0B;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .off-track-strip button {
+      -webkit-app-region: no-drag;
+      background: rgba(245, 158, 11, 0.15);
+      border: none;
+      color: #F59E0B;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .off-track-strip button:hover { opacity: 0.7; }
+
+    /* ── Setup State (before session): goal input ── */
+    .setup-content {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+    }
+    .pill.state-setup .setup-content { display: flex; }
+
+    .setup-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      -webkit-app-region: drag;
+    }
+
+    .setup-logo {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #3B82F6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: white;
+    }
+
+    .setup-title {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .setup-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.35);
+      margin-bottom: 2px;
+    }
+
+    .setup-content textarea,
+    .setup-content input[type="text"] {
+      -webkit-app-region: no-drag;
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.06);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+      resize: none;
+    }
+    .setup-content textarea:focus,
+    .setup-content input[type="text"]:focus {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .setup-content textarea::placeholder,
+    .setup-content input[type="text"]::placeholder {
+      color: rgba(255, 255, 255, 0.2);
+    }
+    .setup-content textarea {
+      min-height: 52px;
+      line-height: 1.4;
+    }
+
+    .start-btn {
+      -webkit-app-region: no-drag;
+      width: 100%;
+      padding: 11px;
+      border-radius: 12px;
+      border: none;
+      background: #3B82F6;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+      letter-spacing: -0.1px;
+    }
+    .start-btn:hover { opacity: 0.85; }
+    .start-btn:active { opacity: 0.7; }
+    .start-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .role-toggle {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.3);
+      text-align: center;
+      cursor: pointer;
+      padding: 2px;
+      transition: color 0.15s;
+    }
+    .role-toggle:hover { color: rgba(255, 255, 255, 0.5); }
+
+    .role-section {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .role-section.visible { display: flex; }
+
+    /* Error */
+    .error-strip {
+      display: none;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(255, 59, 48, 0.1);
+      border: 1px solid rgba(255, 59, 48, 0.15);
+      color: #FF6B6B;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .error-strip.visible { display: block; }
+
+    /* API key inline */
+    .api-key-section {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .api-key-section.visible { display: flex; }
+
+    .api-key-section input[type="password"] {
+      -webkit-app-region: no-drag;
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.06);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+    .api-key-section input[type="password"]::placeholder {
+      color: rgba(255, 255, 255, 0.2);
+    }
+
+    .api-key-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .api-key-actions button {
+      -webkit-app-region: no-drag;
+      flex: 1;
+      padding: 9px;
+      border-radius: 10px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .api-key-actions button:hover { opacity: 0.7; }
+    .save-key-btn { background: #3B82F6; color: white; }
+    .cancel-key-btn { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+
+    .settings-link {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.3);
+      text-align: center;
+      cursor: pointer;
+      padding: 2px;
+      transition: color 0.15s;
+    }
+    .settings-link:hover { color: rgba(255, 255, 255, 0.5); }
+
+    /* ── Done State ── */
+    .done-content {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .pill.state-done .done-content { display: flex; }
+
+    .done-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      background: rgba(52, 199, 89, 0.15);
+      color: #34C759;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    .done-text {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .done-subtitle {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .new-session-btn {
+      -webkit-app-region: no-drag;
+      padding: 9px 20px;
+      border-radius: 10px;
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-top: 4px;
+    }
+    .new-session-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="pill state-setup" id="pill">
+
+    <!-- Collapsed: single-line instruction pill -->
+    <div class="collapsed-row">
+      <div class="status-dot" id="status-dot"></div>
+      <div class="collapsed-text" id="collapsed-text">
+        <span class="collapsed-step" id="collapsed-step"></span>
+        <span id="collapsed-instruction">Thinking...</span>
+      </div>
+      <button class="pill-btn" id="next-btn" title="Next step">&#x2192;</button>
+      <button class="pill-btn" id="expand-btn" title="Ask a question">&#9997;</button>
+      <button class="pill-btn" id="close-collapsed-btn" title="Stop">&times;</button>
+    </div>
+
+    <!-- Expanded: instruction + input -->
+    <div class="expanded-content">
+      <div class="expanded-header">
+        <div class="status-dot" id="expanded-dot"></div>
+        <div class="expanded-title">Guided <span class="expanded-app" id="expanded-app"></span></div>
+        <button class="pill-btn" id="next-expanded-btn" title="Next step">&#x2192;</button>
+        <button class="pill-btn" id="collapse-btn" title="Collapse">&#8722;</button>
+        <button class="pill-btn" id="close-expanded-btn" title="Stop">&times;</button>
+      </div>
+      <div class="expanded-instruction" id="expanded-instruction">Thinking...</div>
+      <div class="off-track-strip" id="off-track-strip">
+        <span class="off-track-strip-text" id="off-track-text">Off track</span>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button id="back-on-track-btn">Get Back on Track</button>
+          <button id="dismiss-btn">End Session</button>
+        </div>
+      </div>
+      <div class="error-strip" id="error-banner"></div>
+      <div class="expanded-input-row">
+        <input type="text" id="followup-input" placeholder="Ask anything...">
+        <button class="send-icon-btn" id="send-btn">&uarr;</button>
+      </div>
+    </div>
+
+    <!-- Setup: goal input -->
+    <div class="setup-content">
+      <div class="setup-header">
+        <div class="setup-logo">G</div>
+        <div class="setup-title">Guided</div>
+        <button class="pill-btn" id="close-setup-btn">&times;</button>
+      </div>
+      <div>
+        <div class="setup-label">What do you want to do?</div>
+        <textarea id="goal-input" rows="2" placeholder="e.g. Create a new campaign and set up targeting"></textarea>
+      </div>
+      <div class="role-section" id="role-section">
+        <div class="setup-label">I am a...</div>
+        <input type="text" id="role-input" placeholder="e.g. Product Manager">
+      </div>
+      <button class="start-btn" id="start-btn">Start Guide</button>
+      <div class="error-strip" id="setup-error-banner"></div>
+      <div class="api-key-section" id="api-key-section">
+        <div class="setup-label">Claude API Key</div>
+        <input type="password" id="api-key-input" placeholder="sk-ant-...">
+        <div class="api-key-actions">
+          <button class="save-key-btn" id="save-key-btn">Save</button>
+          <button class="cancel-key-btn" id="cancel-key-btn">Cancel</button>
+        </div>
+      </div>
+      <div class="role-toggle" id="role-toggle">+ Add role</div>
+      <div class="settings-link" id="settings-link">Settings</div>
+    </div>
+
+    <!-- Done -->
+    <div class="done-content">
+      <div class="done-icon">&#10003;</div>
+      <div class="done-text">Goal completed!</div>
+      <div class="done-subtitle" id="done-subtitle"></div>
+      <button class="new-session-btn" id="new-session-btn">New Session</button>
+    </div>
+  </div>
+
+  <script>
+    if (typeof guided === 'undefined') {
+      document.body.innerHTML = '<div style="padding:20px;color:#FF6B6B;font-size:14px">Error: preload failed</div>';
+      throw new Error('window.guided is undefined');
+    }
+
+    const pill = document.getElementById('pill');
+    const goalInput = document.getElementById('goal-input');
+    const roleInput = document.getElementById('role-input');
+    const startBtn = document.getElementById('start-btn');
+    const followupInput = document.getElementById('followup-input');
+    const sendBtn = document.getElementById('send-btn');
+    const collapsedInstruction = document.getElementById('collapsed-instruction');
+    const collapsedStep = document.getElementById('collapsed-step');
+    const expandedInstruction = document.getElementById('expanded-instruction');
+    const expandedApp = document.getElementById('expanded-app');
+    const statusDot = document.getElementById('status-dot');
+    const expandedDot = document.getElementById('expanded-dot');
+    const errorBanner = document.getElementById('error-banner');
+    const setupErrorBanner = document.getElementById('setup-error-banner');
+    const offTrackStrip = document.getElementById('off-track-strip');
+    const apiKeySection = document.getElementById('api-key-section');
+    const apiKeyInput = document.getElementById('api-key-input');
+    const roleSection = document.getElementById('role-section');
+
+    // --- State Management ---
+    function setState(state) {
+      pill.className = 'pill state-' + state;
+
+      // Resize window to match state
+      const sizes = {
+        setup: { w: 320, h: 260 },
+        collapsed: { w: 320, h: 52 },
+        expanded: { w: 320, h: 180 },
+        done: { w: 320, h: 200 },
+      };
+      const size = sizes[state] || sizes.collapsed;
+      guided.resizeWindow(size.w, size.h);
+    }
+
+    // --- Start Session ---
+    startBtn.addEventListener('click', async () => {
+      const goal = goalInput.value.trim();
+      if (!goal) { goalInput.focus(); return; }
+
+      startBtn.disabled = true;
+      startBtn.textContent = 'Starting...';
+
+      try {
+        setupErrorBanner.classList.remove('visible');
+        await guided.startSession(goal, roleInput.value.trim());
+        setState('expanded');
+        expandedDot.classList.add('thinking');
+        expandedInstruction.textContent = 'Thinking...';
+        expandedApp.textContent = '';
+      } catch (err) {
+        setupErrorBanner.textContent = err.message || 'Failed to start';
+        setupErrorBanner.classList.add('visible');
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Guide';
+      }
+    });
+
+    // Enter to start
+    goalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        startBtn.click();
+      }
+    });
+
+    // --- Close Buttons ---
+    document.getElementById('close-setup-btn').addEventListener('click', () => guided.closeWindow());
+    document.getElementById('close-collapsed-btn').addEventListener('click', () => {
+      guided.stopSession();
+    });
+    document.getElementById('close-expanded-btn').addEventListener('click', () => {
+      guided.stopSession();
+    });
+
+    // --- Next Step ---
+    document.getElementById('next-btn').addEventListener('click', async () => {
+      setState('expanded');
+      expandedDot.classList.add('thinking');
+      expandedInstruction.textContent = 'Thinking...';
+      await guided.nextStep();
+    });
+    document.getElementById('next-expanded-btn').addEventListener('click', async () => {
+      expandedDot.classList.add('thinking');
+      expandedInstruction.textContent = 'Thinking...';
+      await guided.nextStep();
+    });
+
+    // --- Expand / Collapse ---
+    document.getElementById('expand-btn').addEventListener('click', () => {
+      setState('expanded');
+      followupInput.focus();
+    });
+    document.getElementById('collapse-btn').addEventListener('click', () => {
+      setState('collapsed');
+    });
+
+    // --- Send Follow-up ---
+    function sendFollowup() {
+      const text = followupInput.value.trim();
+      if (!text) return;
+      followupInput.value = '';
+      guided.sendMessage(text);
+      expandedDot.classList.add('thinking');
+      expandedInstruction.textContent = 'Thinking...';
+    }
+    sendBtn.addEventListener('click', sendFollowup);
+    followupInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendFollowup();
+    });
+
+    // --- Off-Track ---
+    document.getElementById('back-on-track-btn').addEventListener('click', async () => {
+      offTrackStrip.classList.remove('visible');
+      statusDot.classList.remove('off-track');
+      expandedDot.classList.remove('off-track');
+      expandedDot.classList.add('thinking');
+      expandedInstruction.textContent = 'Re-evaluating...';
+      guided.resizeWindow(320, 180);
+      guided.backOnTrack();
+      await guided.nextStep(); // Re-capture screen and get new instruction
+    });
+    document.getElementById('dismiss-btn').addEventListener('click', () => {
+      guided.stopSession();
+    });
+
+    // --- Role Toggle ---
+    document.getElementById('role-toggle').addEventListener('click', () => {
+      const isVisible = roleSection.classList.contains('visible');
+      if (isVisible) {
+        roleSection.classList.remove('visible');
+      } else {
+        roleSection.classList.add('visible');
+        guided.resizeWindow(320, 310);
+      }
+    });
+
+    // --- Settings ---
+    document.getElementById('settings-link').addEventListener('click', () => {
+      const isVisible = apiKeySection.classList.contains('visible');
+      if (isVisible) {
+        apiKeySection.classList.remove('visible');
+      } else {
+        apiKeySection.classList.add('visible');
+        guided.resizeWindow(320, 380);
+        guided.getSettings().then((s) => {
+          if (s.apiKey) {
+            apiKeyInput.placeholder = 'Key saved. Enter new to change.';
+          }
+        });
+      }
+    });
+
+    document.getElementById('save-key-btn').addEventListener('click', async () => {
+      const key = apiKeyInput.value.trim();
+      if (!key) return;
+      const settings = await guided.getSettings();
+      settings.apiKey = key;
+      await guided.saveSettings(settings);
+      apiKeyInput.value = '';
+      apiKeyInput.placeholder = 'Saved!';
+      setupErrorBanner.classList.remove('visible');
+      setTimeout(() => {
+        apiKeySection.classList.remove('visible');
+        apiKeyInput.placeholder = 'sk-ant-...';
+        guided.resizeWindow(320, 260);
+      }, 1000);
+    });
+
+    document.getElementById('cancel-key-btn').addEventListener('click', () => {
+      apiKeySection.classList.remove('visible');
+      apiKeyInput.value = '';
+      guided.resizeWindow(320, 260);
+    });
+
+    // --- New Session ---
+    document.getElementById('new-session-btn').addEventListener('click', () => {
+      goalInput.value = '';
+      errorBanner.classList.remove('visible');
+      setupErrorBanner.classList.remove('visible');
+      startBtn.disabled = false;
+      startBtn.textContent = 'Start Guide';
+      offTrackStrip.classList.remove('visible');
+      setState('setup');
+    });
+
+    // --- Initialize ---
+    setState('setup');
+
+    // --- IPC Listeners ---
+    guided.onAppDetected((appName) => {
+      expandedApp.textContent = '\u00b7 ' + appName;
+    });
+
+    guided.onStepUpdate((data) => {
+      statusDot.classList.remove('thinking');
+      expandedDot.classList.remove('thinking');
+
+      collapsedStep.textContent = `Step ${data.stepNumber} \u00b7 `;
+      collapsedInstruction.textContent = data.instruction;
+      expandedInstruction.textContent = data.instruction;
+
+      if (data.done) {
+        document.getElementById('done-subtitle').textContent =
+          `Completed in ${data.stepNumber} steps`;
+        setState('done');
+      } else {
+        setState('expanded'); // Expand to show instruction
+      }
+    });
+
+    guided.onOffTrack((data) => {
+      const offTrackText = document.getElementById('off-track-text');
+      offTrackText.textContent = data.correction || 'You seem to be off track';
+      offTrackStrip.classList.add('visible');
+      statusDot.classList.add('off-track');
+      expandedDot.classList.add('off-track');
+      setState('expanded');
+      guided.resizeWindow(320, 260);
+    });
+
+    guided.onSessionEnd((data) => {
+      document.getElementById('done-subtitle').textContent =
+        `${data.status === 'completed' ? 'Completed' : 'Ended'} after ${data.stepCount} steps`;
+      setState('done');
+    });
+
+    guided.onSessionError((msg) => {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      statusDot.classList.remove('thinking');
+      expandedDot.classList.remove('thinking');
+      setState('expanded');
+      guided.resizeWindow(320, 210);
+    });
+
+    guided.onLoading((loading) => {
+      if (loading) {
+        setState('collapsed'); // Collapse to pill while thinking
+        statusDot.classList.add('thinking');
+        expandedDot.classList.add('thinking');
+        errorBanner.classList.remove('visible');
+        collapsedInstruction.textContent = 'Thinking...';
+        collapsedStep.textContent = '';
+      } else {
+        statusDot.classList.remove('thinking');
+        expandedDot.classList.remove('thinking');
+      }
+    });
+
+    // --- Init ---
+    guided.getSettings().then((settings) => {
+      if (settings.defaultRole && !roleInput.value) {
+        roleInput.value = settings.defaultRole;
+      }
+      if (!settings.apiKey) {
+        apiKeySection.classList.add('visible');
+        setupErrorBanner.textContent = 'Add your Claude API key to get started.';
+        setupErrorBanner.classList.add('visible');
+        guided.resizeWindow(320, 380);
+      }
+    });
+  </script>
+</body>
+</html>
