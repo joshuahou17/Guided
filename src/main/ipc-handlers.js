@@ -36,7 +36,7 @@ function registerAllIpcHandlers() {
   });
 
   ipcMain.handle('session:next-step', async () => {
-    await advanceStep();
+    await advanceStep(300);
   });
 
   ipcMain.handle('session:back-on-track', () => {
@@ -108,35 +108,65 @@ function registerAllIpcHandlers() {
     return true;
   });
 
-  // --- Knowledge Base ---
-  ipcMain.handle('knowledge:scrape', async (_event, appName, url) => {
+  // --- Research Cache ---
+  ipcMain.handle('research:refresh', (_event, appName) => {
     try {
-      const { scrapeHelpCenter } = require('../knowledge/scraper');
-      const { chunkText } = require('../knowledge/chunker');
-      const { indexChunks } = require('../knowledge/vector-store');
-
-      const pages = await scrapeHelpCenter(url);
-      const allChunks = [];
-      for (const page of pages) {
-        const chunks = chunkText(page.text);
-        for (const text of chunks) {
-          allChunks.push({ text, url: page.url, title: page.title });
-        }
-      }
-
-      await indexChunks(appName, allChunks);
-      return { pagesScraped: pages.length, chunksIndexed: allChunks.length };
+      const { refreshCache } = require('../research/cache');
+      refreshCache(appName);
+      return { success: true };
     } catch (err) {
-      throw new Error(`Scraping failed: ${err.message}`);
+      return { success: false, error: err.message };
     }
   });
 
-  ipcMain.handle('knowledge:status', (_event, appName) => {
+  // --- Knowledge Graphs ---
+  ipcMain.handle('graphs:list', () => {
     try {
-      const { vectorStoreExists } = require('../knowledge/vector-store');
-      return { indexed: vectorStoreExists(appName) };
+      const { listGraphs } = require('../knowledge/graph-store');
+      return listGraphs();
+    } catch (err) {
+      return [];
+    }
+  });
+
+  ipcMain.handle('graphs:get', (_event, appName) => {
+    try {
+      const { loadGraph } = require('../knowledge/graph-store');
+      const graph = loadGraph(appName);
+      if (!graph) return null;
+      return { appName: graph.appName, nodeCount: graph.nodeCount, lastEnriched: graph.lastEnriched, appType: graph.appType };
     } catch {
-      return { indexed: false };
+      return null;
+    }
+  });
+
+  ipcMain.handle('graphs:delete', (_event, appName) => {
+    try {
+      const { deleteGraph } = require('../knowledge/graph-store');
+      deleteGraph(appName);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('graphs:rebuild', async (_event, appName) => {
+    try {
+      const { identifyApp } = require('../research/appIdentifier');
+      const { runResearchAgent } = require('../research/researchAgent');
+      const { buildGraph } = require('../knowledge/graph-builder');
+      const { deleteGraph } = require('../knowledge/graph-store');
+      const { refreshCache } = require('../research/cache');
+
+      deleteGraph(appName);
+      refreshCache(appName);
+
+      const appInfo = { appName, appType: 'desktop', currentView: 'Unknown', url: null, version: null };
+      const results = await runResearchAgent(appInfo, () => {});
+      const graph = await buildGraph(appInfo, results);
+      return { success: true, nodeCount: Object.keys(graph.nodes).length };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   });
 

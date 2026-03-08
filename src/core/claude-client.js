@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 
 const MODEL = 'claude-haiku-4-5-20251001';
+const EXTRACTION_MODEL = 'claude-sonnet-4-6';
 
 let client = null;
 let stats = { inputTokens: 0, outputTokens: 0, callCount: 0 };
@@ -55,7 +56,11 @@ async function sendGuideRequest(systemPrompt, messages, tools, options = {}) {
       const match = accumulatedText.match(/<instruction>([\s\S]*?)<\/instruction>/i);
       if (match) {
         instructionEmitted = true;
-        options.onInstruction(match[1].trim());
+        try {
+          options.onInstruction(match[1].trim());
+        } catch (err) {
+          // Don't let callback errors crash the stream
+        }
       }
     }
   });
@@ -89,8 +94,28 @@ async function sendChatRequest(systemPrompt, messages, maxTokens = 1000) {
     .join('');
 }
 
+async function sendExtractionRequest(systemPrompt, messages, maxTokens = 4096) {
+  const c = getClient();
+  stats.callCount++;
+
+  const response = await c.messages.create({
+    model: EXTRACTION_MODEL,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages,
+  });
+
+  stats.inputTokens += response.usage.input_tokens;
+  stats.outputTokens += response.usage.output_tokens;
+
+  return response.content
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('');
+}
+
 function getStats() {
   return { ...stats };
 }
 
-module.exports = { initClient, getClient, sendGuideRequest, sendChatRequest, getStats };
+module.exports = { initClient, getClient, sendGuideRequest, sendChatRequest, sendExtractionRequest, getStats };

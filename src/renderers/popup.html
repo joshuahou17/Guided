@@ -217,6 +217,69 @@
     }
     .off-track-strip button:hover { opacity: 0.7; }
 
+    /* ── Research Status Row ── */
+    .research-row {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-top: 6px;
+      border-radius: 8px;
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.15);
+      transition: all 0.3s ease;
+    }
+    .research-row.visible { display: flex; }
+    .research-row.complete {
+      background: rgba(34, 197, 94, 0.08);
+      border-color: rgba(34, 197, 94, 0.15);
+    }
+    .research-row.limited {
+      background: rgba(245, 158, 11, 0.08);
+      border-color: rgba(245, 158, 11, 0.15);
+    }
+    .research-spinner {
+      width: 12px; height: 12px;
+      border: 2px solid rgba(59, 130, 246, 0.25);
+      border-top-color: #3B82F6;
+      border-radius: 50%;
+      animation: rspin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    .research-row.complete .research-spinner {
+      animation: none;
+      border-color: #22C55E;
+      background: #22C55E;
+      width: 8px; height: 8px;
+    }
+    .research-row.limited .research-spinner {
+      animation: none;
+      border-color: #F59E0B;
+      background: #F59E0B;
+      width: 8px; height: 8px;
+    }
+    @keyframes rspin { to { transform: rotate(360deg); } }
+    .research-text {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(59, 130, 246, 0.85);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .research-row.complete .research-text { color: rgba(34, 197, 94, 0.85); }
+    .research-row.limited .research-text { color: rgba(245, 158, 11, 0.85); }
+    .research-count {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(59, 130, 246, 0.5);
+      white-space: nowrap;
+    }
+    .research-row.complete .research-count { color: rgba(34, 197, 94, 0.5); }
+    .research-row.limited .research-count { color: rgba(245, 158, 11, 0.5); }
+    .research-row.fade-out { opacity: 0; transition: opacity 0.5s ease; }
+
     /* ── Setup State (before session): goal input ── */
     .setup-content {
       display: none;
@@ -442,6 +505,26 @@
       background: rgba(255, 255, 255, 0.12);
       color: white;
     }
+
+    /* ── Text Input "Done?" Button ── */
+    .done-typing-btn {
+      -webkit-app-region: no-drag;
+      display: none;
+      padding: 8px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      background: rgba(59, 130, 246, 0.12);
+      color: #3B82F6;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      align-self: flex-start;
+    }
+    .done-typing-btn:hover {
+      background: rgba(59, 130, 246, 0.25);
+    }
+    .done-typing-btn.visible { display: block; }
   </style>
 </head>
 <body>
@@ -469,6 +552,12 @@
         <button class="pill-btn" id="close-expanded-btn" title="Stop">&times;</button>
       </div>
       <div class="expanded-instruction" id="expanded-instruction">Thinking...</div>
+      <button class="done-typing-btn" id="done-typing-btn">Done?</button>
+      <div class="research-row" id="research-row">
+        <div class="research-spinner" id="research-spinner"></div>
+        <span class="research-text" id="research-text">Researching...</span>
+        <span class="research-count" id="research-count"></span>
+      </div>
       <div class="off-track-strip" id="off-track-strip">
         <span class="off-track-strip-text" id="off-track-text">Off track</span>
         <div style="display:flex;gap:6px;flex-shrink:0">
@@ -571,6 +660,12 @@
 
       try {
         setupErrorBanner.classList.remove('visible');
+        // Switch to collapsed pill to show research progress
+        setState('collapsed');
+        statusDot.classList.add('thinking');
+        collapsedInstruction.textContent = 'Analyzing screen...';
+        collapsedStep.textContent = '';
+
         await guided.startSession(goal, roleInput.value.trim());
         setState('expanded');
         expandedDot.classList.add('thinking');
@@ -581,6 +676,7 @@
         setupErrorBanner.classList.add('visible');
         startBtn.disabled = false;
         startBtn.textContent = 'Start Guide';
+        setState('setup');
       }
     });
 
@@ -709,6 +805,7 @@
       startBtn.disabled = false;
       startBtn.textContent = 'Start Guide';
       offTrackStrip.classList.remove('visible');
+      doneTypingBtn.classList.remove('visible');
       setState('setup');
     });
 
@@ -720,9 +817,12 @@
       expandedApp.textContent = '\u00b7 ' + appName;
     });
 
+    const doneTypingBtn = document.getElementById('done-typing-btn');
+
     guided.onStepUpdate((data) => {
       statusDot.classList.remove('thinking');
       expandedDot.classList.remove('thinking');
+      doneTypingBtn.classList.remove('visible');
 
       collapsedStep.textContent = `Step ${data.stepNumber} \u00b7 `;
       collapsedInstruction.textContent = data.instruction;
@@ -737,6 +837,20 @@
       }
     });
 
+    guided.onTextInput(() => {
+      doneTypingBtn.classList.add('visible');
+      setState('expanded');
+      guided.resizeWindow(320, 210);
+    });
+
+    doneTypingBtn.addEventListener('click', async () => {
+      doneTypingBtn.classList.remove('visible');
+      expandedDot.classList.add('thinking');
+      expandedInstruction.textContent = 'Thinking...';
+      guided.resizeWindow(320, 180);
+      await guided.nextStep();
+    });
+
     guided.onOffTrack((data) => {
       const offTrackText = document.getElementById('off-track-text');
       offTrackText.textContent = data.correction || 'You seem to be off track';
@@ -745,6 +859,14 @@
       expandedDot.classList.add('off-track');
       setState('expanded');
       guided.resizeWindow(320, 260);
+    });
+
+    guided.onStepReset(() => {
+      offTrackStrip.classList.remove('visible');
+      doneTypingBtn.classList.remove('visible');
+      researchRow.className = 'research-row';
+      researchSourceCount = 0;
+      errorBanner.classList.remove('visible');
     });
 
     guided.onSessionEnd((data) => {
@@ -768,11 +890,50 @@
         statusDot.classList.add('thinking');
         expandedDot.classList.add('thinking');
         errorBanner.classList.remove('visible');
+        doneTypingBtn.classList.remove('visible');
         collapsedInstruction.textContent = 'Thinking...';
         collapsedStep.textContent = '';
       } else {
         statusDot.classList.remove('thinking');
         expandedDot.classList.remove('thinking');
+      }
+    });
+
+    const researchRow = document.getElementById('research-row');
+    const researchText = document.getElementById('research-text');
+    const researchCount = document.getElementById('research-count');
+    let researchSourceCount = 0;
+
+    guided.onResearchProgress((msg) => {
+      // Show research row in expanded view
+      researchRow.className = 'research-row visible';
+
+      if (msg.startsWith('Searching:')) {
+        researchText.textContent = msg;
+      } else if (msg.startsWith('Reading:')) {
+        researchSourceCount++;
+        researchText.textContent = 'Reading documentation...';
+        researchCount.textContent = researchSourceCount + (researchSourceCount === 1 ? ' source' : ' sources');
+      } else {
+        researchText.textContent = msg;
+      }
+    });
+
+    guided.onResearchComplete((data) => {
+      researchSourceCount = 0;
+      if (data.limitedDocs) {
+        researchRow.className = 'research-row visible limited';
+        researchText.textContent = 'Limited documentation found';
+        researchCount.textContent = data.sourcesCount + (data.sourcesCount === 1 ? ' source' : ' sources');
+      } else {
+        researchRow.className = 'research-row visible complete';
+        researchText.textContent = 'Research complete';
+        researchCount.textContent = data.sourcesCount + ' sources';
+        // Fade out after 5 seconds
+        setTimeout(() => {
+          researchRow.classList.add('fade-out');
+          setTimeout(() => { researchRow.className = 'research-row'; }, 500);
+        }, 5000);
       }
     });
 

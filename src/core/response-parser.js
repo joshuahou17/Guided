@@ -1,3 +1,5 @@
+const TEXT_INPUT_PATTERN = /\b(type|enter|write|fill in|input|clear.*(type|write|enter)|rename)\b/;
+
 /**
  * Extract content between XML-like tags.
  */
@@ -22,6 +24,14 @@ function parseComputerUseResponse(responseContent) {
   const instruction = extractTag(fullText, 'instruction') || 'Follow the highlighted element';
   const reasoning = extractTag(fullText, 'reasoning') || '';
 
+  let actionType = extractTag(fullText, 'action_type') || null;
+
+  // Fallback: detect text input from instruction keywords if model didn't emit the tag
+  if (!actionType) {
+    const lowerInst = instruction.toLowerCase();
+    actionType = TEXT_INPUT_PATTERN.test(lowerInst) ? 'text_input' : 'click';
+  }
+
   const onTrackStr = extractTag(fullText, 'on_track');
   const onTrack = onTrackStr !== 'false';
 
@@ -42,7 +52,7 @@ function parseComputerUseResponse(responseContent) {
     }
   }
 
-  return { instruction, onTrack, done, clickCoord, toolUseId, reasoning, raw: fullText };
+  return { instruction, actionType, onTrack, done, clickCoord, toolUseId, reasoning, raw: fullText };
 }
 
 /**

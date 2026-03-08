@@ -33,6 +33,18 @@ contextBridge.exposeInMainWorld('guided', {
   onAppDetected: (cb) => {
     ipcRenderer.on('session:app-detected', (_e, appName) => cb(appName));
   },
+  onResearchProgress: (cb) => {
+    ipcRenderer.on('session:research-progress', (_e, msg) => cb(msg));
+  },
+  onResearchComplete: (cb) => {
+    ipcRenderer.on('session:research-complete', (_e, data) => cb(data));
+  },
+  onStepReset: (cb) => {
+    ipcRenderer.on('step:reset', () => cb());
+  },
+  onTextInput: (cb) => {
+    ipcRenderer.on('step:text-input', (_e, data) => cb(data));
+  },
 
   // --- Dashboard Events ---
   onSwitchTab: (cb) => {
@@ -51,9 +63,11 @@ contextBridge.exposeInMainWorld('guided', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
-  // --- Knowledge Base ---
-  scrapeHelpCenter: (appName, url) => ipcRenderer.invoke('knowledge:scrape', appName, url),
-  getKnowledgeStatus: (appName) => ipcRenderer.invoke('knowledge:status', appName),
+  // --- Knowledge Graphs ---
+  listGraphs: () => ipcRenderer.invoke('graphs:list'),
+  getGraph: (appName) => ipcRenderer.invoke('graphs:get', appName),
+  deleteGraph: (appName) => ipcRenderer.invoke('graphs:delete', appName),
+  rebuildGraph: (appName) => ipcRenderer.invoke('graphs:rebuild', appName),
 
   // --- Profile AI Interview ---
   sendProfileChat: (appName, message) => ipcRenderer.invoke('profile:chat', appName, message),

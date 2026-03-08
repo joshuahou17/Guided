@@ -2,7 +2,7 @@
  * Build the system prompt for guidance sessions.
  * Uses Claude Computer Use API for spatial accuracy.
  */
-function buildSystemPrompt(appName, userRole, profileContext, knowledgeChunks) {
+function buildSystemPrompt(appName, userRole, profileContext, graphContext, researchContext, appGuide, workflowPlan = null) {
   let prompt = `You are Guided, an AI onboarding assistant helping a user learn ${appName}.`;
 
   if (userRole) {
@@ -11,6 +11,10 @@ function buildSystemPrompt(appName, userRole, profileContext, knowledgeChunks) {
 
   if (profileContext) {
     prompt += `\n\nUser profile context:\n${profileContext}`;
+  }
+
+  if (appGuide) {
+    prompt += `\n\n=== App Guide for ${appName} ===\nThe following describes ${appName}'s layout, navigation, and workflows. Use this as your primary reference for understanding where UI elements are located and how to navigate the app:\n${appGuide}\n=== End App Guide ===`;
   }
 
   prompt += `
@@ -24,12 +28,17 @@ You are a UI guide with the ability to see the user's screen. Your job is to ide
 For each step:
 1. Analyze what you see in the screenshot in a <reasoning> tag.
 2. Provide a brief instruction in an <instruction> tag.
-3. Use the computer tool with action "left_click" to indicate exactly where the user should click.
-4. Assess whether the user is on track.
+3. Use the computer tool with action "left_click" to indicate exactly where the user should interact.
+4. Set the action type.
+5. Assess whether the user is on track.
 
 <reasoning>Describe what you see in the screenshot: what screen/page is shown, what UI elements are visible, and where the target element is located. Think about the exact position of the element the user should interact with.</reasoning>
 
 <instruction>Short action text, max 15 words. e.g. "Click the blue Add button in the top-right corner"</instruction>
+
+<action_type>click</action_type>
+Set to "click" when the user needs to click a UI element.
+Set to "text_input" when the user needs to type text into a field. Use the computer tool to indicate the text field location.
 
 <on_track>true</on_track>
 Set to false if the screenshot shows the user has navigated away from the expected path.
@@ -40,14 +49,33 @@ Set to true ONLY when the screenshot shows that the user's stated goal has been 
 Rules:
 - ALWAYS include a <reasoning> tag first — analyze the screenshot carefully before deciding.
 - Be concise. One action per step. Max 15 words in the instruction.
-- ALWAYS use the computer tool to indicate the exact click position on the UI element.
+- ALWAYS use the computer tool to indicate the exact position on the UI element.
 - If the user is off track, explain how to return to the correct screen.
 - Never skip steps or combine multiple actions into one.
+- When the user needs to type text (fill a form field, write a description, enter a name), set <action_type>text_input</action_type> and tell the user exactly what to type. Do NOT set done until you can see the typed text on screen.
+- If the screenshot appears unchanged from the previous step, your previous instruction may have been wrong or the user's action didn't work. Re-evaluate the screen and try a different approach — do NOT repeat the same instruction.
 - After each step, evaluate whether the goal appears accomplished. If it is, set <done>true</done> and do NOT use the computer tool.
-- When the goal is accomplished, respond with text only (no tool_use) and include <done>true</done>.`;
+- When the goal is accomplished, respond with text only (no tool_use) and include <done>true</done>.
+- If a Workflow Plan is provided, follow it step by step. Reference the plan in your <reasoning> to determine the next action. If the screen doesn't match the expected state for the current plan step, adapt — explain in your reasoning why you're deviating.
+- When following a clear plan step, keep your <reasoning> brief — confirm you're on the plan step and identify the target UI element. Save detailed reasoning for when you need to adapt.`;
 
-  if (knowledgeChunks && knowledgeChunks.length > 0) {
-    prompt += `\n\nRelevant documentation from ${appName}'s help center:\n---\n${knowledgeChunks.join('\n---\n')}\n---`;
+  // Inject workflow plan (highest priority context after instructions)
+  if (workflowPlan && workflowPlan.length > 0) {
+    prompt += `\n\n=== Workflow Plan ===\nPlanned steps to achieve the goal:\n`;
+    workflowPlan.forEach((step, i) => {
+      prompt += `${i + 1}. ${step}\n`;
+    });
+    prompt += `\nFollow this plan step by step. If the screen shows something different than expected, adapt — the plan is a guide, not a rigid script. When adapting, still aim for the shortest path to the goal.\n=== End Workflow Plan ===`;
+  }
+
+  // Inject knowledge graph context (structured, relevant nodes)
+  if (graphContext) {
+    prompt += `\n\n${graphContext}`;
+  }
+
+  // Inject research context (from screenshot-first research pipeline)
+  if (researchContext) {
+    prompt += researchContext;
   }
 
   return prompt;
@@ -109,8 +137,12 @@ function buildStepMessage(screenshotBase64, userGoal, previousInstructions, user
  * Build a tool_result message for subsequent steps.
  * Sends the new screenshot as a tool_result keyed to the previous tool_use ID.
  */
-function buildToolResultMessage(toolUseId, screenshotBase64, userMessage, previousInstructions) {
-  let statusText = 'The user performed the action. Here is the updated screen.';
+function buildToolResultMessage(toolUseId, screenshotBase64, userMessage, previousInstructions, actionType = 'click') {
+  const statusMessages = {
+    text_input: 'The user has finished typing and confirmed by clicking Done. This step is COMPLETE — do NOT repeat the typing instruction. Move on to the next step in the workflow. Here is the updated screen.',
+    click: 'The user clicked where indicated. Here is the updated screen. If the screen looks the same as before, the click may not have had the expected effect — try a different approach.',
+  };
+  let statusText = statusMessages[actionType] || statusMessages.click;
 
   if (previousInstructions && previousInstructions.length > 0) {
     statusText += '\n\nCompleted steps so far:';
@@ -162,15 +194,60 @@ function buildProfileInterviewPrompt(appName, currentProfile) {
     prompt += `\n\nNo profile exists yet. Start by asking about their role and what they primarily use ${appName} for.`;
   }
 
-  prompt += `\n\nAfter each response, if you have enough information to update the profile, include a JSON block at the end wrapped in <profile_update> tags:\n<profile_update>{"role": "...", "team": "...", "experienceLevel": "...", "notes": "..."}</profile_update>`;
+  prompt += `\n\nAfter each response, if you have enough information to update the profile, include a JSON block at the end wrapped in <profile_update> tags:\n<profile_update>{"role": "...", "team": "...", "experienceLevel": "...", "notes": "...", "appGuide": "..."}</profile_update>`;
+  prompt += `\n\nThe "appGuide" field should describe the app's UI layout, navigation structure, and common workflows if the user provides such information. For example: "Left sidebar has: Dashboard, Projects, Tasks. Top bar has search and + New button. To create a project: click + New > Project."`;
 
   return prompt;
 }
 
+/**
+ * Build system prompt for the first step when research hasn't completed yet.
+ * Same as buildSystemPrompt but without research context, and with a note
+ * that research is loading.
+ */
+function buildSystemPromptWithoutResearch(appName, userRole, profileContext, graphContext, appGuide, workflowPlan = null) {
+  let prompt = buildSystemPrompt(appName, userRole, profileContext, graphContext, '', appGuide, workflowPlan);
+  prompt += '\n\nNote: Background research on this application is in progress and will be available for subsequent steps. For now, guide the user based on what you can see on screen.';
+  return prompt;
+}
+
+/**
+ * Build the prompt for the workflow planning call.
+ */
+function buildPlanningPrompt(appName, goal, currentView, appGuide, similarWorkflows) {
+  const systemPrompt = `You are a workflow planner for software applications. Given a user's goal and context about the app, plan the most efficient step-by-step workflow. Each step should be one concrete action (click a button, type text, select a menu item). Be specific about what UI element to interact with and where it is. Aim for the shortest path to the goal.
+
+Return ONLY a JSON array of step strings. No other text.
+
+Example: ["Click the + button next to Your Library", "Select Playlist from the dropdown menu", "Type the playlist name", "Click Save"]`;
+
+  let userMsg = `Plan the optimal workflow for this goal in ${appName}.\n\nGoal: ${goal}`;
+
+  if (currentView && currentView !== 'Unknown' && currentView !== 'Unknown view') {
+    userMsg += `\nCurrent view: ${currentView}`;
+  }
+
+  if (appGuide) {
+    userMsg += `\n\nApp layout and navigation:\n${appGuide}`;
+  }
+
+  if (similarWorkflows && similarWorkflows.length > 0) {
+    userMsg += '\n\nSimilar workflows that have worked before:';
+    for (const wf of similarWorkflows) {
+      userMsg += `\n- "${wf.name}": ${wf.steps.join(' → ')}`;
+      if (wf.completionCount > 0) userMsg += ` (used successfully ${wf.completionCount} time${wf.completionCount > 1 ? 's' : ''})`;
+    }
+  }
+
+  return { systemPrompt, userMsg };
+}
+
 module.exports = {
   buildSystemPrompt,
+  buildSystemPromptWithoutResearch,
   buildStepMessage,
   buildComputerTools,
   buildToolResultMessage,
   buildProfileInterviewPrompt,
+  buildPlanningPrompt,
 };

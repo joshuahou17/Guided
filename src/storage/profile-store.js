@@ -37,6 +37,7 @@ function listProfiles() {
           appName: data.appName,
           role: data.role || '',
           lastUpdated: data.lastUpdated || '',
+          hasGuide: !!(data.appGuide && data.appGuide.trim()),
         };
       } catch {
         return null;
